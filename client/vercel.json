@@ -2,7 +2,21 @@
     "rewrites": [
       {
         "source": "/(.*)",
-        "destination": "/"
+        "destination": "/index.html"
+      }
+    ],
+    "buildCommand": "npm run build",
+    "outputDirectory": "dist",
+    "framework": "vite",
+    "headers": [
+      {
+        "source": "/(.*)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public, max-age=0, must-revalidate"
+          }
+        ]
       }
     ]
   }
