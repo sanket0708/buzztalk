@@ -79,15 +79,36 @@ export const AuthProvider = ({ children }) => {
         const newSocket = io(backendUrl, {
             query: {
                 userId: userData._id,
+            },
+            reconnection: true,
+            reconnectionAttempts: 5,
+            reconnectionDelay: 1000,
+            timeout: 10000
+        });
+
+        newSocket.on('connect', () => {
+            console.log('Socket connected');
+        });
+
+        newSocket.on('connect_error', (error) => {
+            console.error('Socket connection error:', error);
+            toast.error('Connection error. Trying to reconnect...');
+        });
+
+        newSocket.on('disconnect', (reason) => {
+            console.log('Socket disconnected:', reason);
+            if (reason === 'io server disconnect') {
+                // Server initiated disconnect, try to reconnect
+                newSocket.connect();
             }
-        })
+        });
 
         newSocket.connect();
         setSocket(newSocket);
 
         newSocket.on("getOnlineUsers", (userIds) => {
-            setOnlineUsers(userIds)
-        })
+            setOnlineUsers(userIds);
+        });
     }
 
     useEffect(() => {

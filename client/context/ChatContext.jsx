@@ -56,27 +56,60 @@ export const ChatProvider = ({ children }) => {
         }
     }
 
-    //new meesage in real time 
-
+    //new message in real time 
     const subscribeToMessages = async () => {
         if (!socket) return;
 
         socket.on("newMessage", (newMessage) => {
+            console.log('New message received:', newMessage);
             if (selectedUser && newMessage.senderId === selectedUser._id) {
                 newMessage.seen = true;
-                setMessages((prevMessages) => [...prevMessages, newMessage])
-                axios.put(`/api/messages/mark/${newMessage._id}`);
+                setMessages((prevMessages) => {
+                    // Check if message already exists
+                    const exists = prevMessages.some(msg => msg._id === newMessage._id);
+                    if (exists) return prevMessages;
+                    return [...prevMessages, newMessage];
+                });
+                // Mark message as seen
+                axios.put(`/api/messages/mark/${newMessage._id}`).catch(error => {
+                    console.error('Error marking message as seen:', error);
+                });
             } else {
                 setUnseenMessages((prevUnseenMessages) => ({
-                    ...prevUnseenMessages, [newMessage.senderId]: prevUnseenMessages[newMessage.senderId] ? prevUnseenMessages[newMessage.senderId] + 1 : 1
-                }))
+                    ...prevUnseenMessages,
+                    [newMessage.senderId]: (prevUnseenMessages[newMessage.senderId] || 0) + 1
+                }));
             }
-        })
+        });
+
+        // Listen for message seen status
+        socket.on("messageSeen", ({ messageId }) => {
+            setMessages((prevMessages) =>
+                prevMessages.map((msg) =>
+                    msg._id === messageId ? { ...msg, seen: true } : msg
+                )
+            );
+        });
     }
 
     const unsubscribeFromMessages = async () => {
-        if (socket) socket.off("newMessage");
+        if (socket) {
+            socket.off("newMessage");
+            socket.off("messageSeen");
+        }
     }
+
+    // Reconnect socket when selectedUser changes
+    useEffect(() => {
+        if (socket && selectedUser) {
+            socket.emit("joinChat", selectedUser._id);
+        }
+        return () => {
+            if (socket && selectedUser) {
+                socket.emit("leaveChat", selectedUser._id);
+            }
+        };
+    }, [socket, selectedUser]);
 
     useEffect(() => {
         subscribeToMessages();
