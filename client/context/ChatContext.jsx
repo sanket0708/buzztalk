@@ -5,18 +5,17 @@ import toast from "react-hot-toast";
 export const ChatContext = createContext();
 
 export const ChatProvider = ({ children }) => {
-
     const [messages, setMessages] = useState([]);
     const [users, setUsers] = useState([]);
     const [selectedUser, setSelectedUser] = useState(null);
-    const [unseenMessages, setUnseenMessages] = useState({})
+    const [unseenMessages, setUnseenMessages] = useState({});
+    const [isLoading, setIsLoading] = useState(false);
 
     const { socket, axios } = useContext(AuthContext);
 
-    //fetch all users for sidebar
-
     const getUsers = async () => {
         try {
+            setIsLoading(true);
             const { data } = await axios.get("/api/messages/users");
             if (data.success) {
                 setUsers(data.users);
@@ -24,98 +23,121 @@ export const ChatProvider = ({ children }) => {
             }
         } catch (error) {
             toast.error(error.message);
+        } finally {
+            setIsLoading(false);
         }
-    }
-
-    //get message 
+    };
 
     const getMessages = async (userId) => {
         try {
+            setIsLoading(true);
             const { data } = await axios.get(`/api/messages/${userId}`);
             if (data.success) {
                 setMessages(data.messages);
-
             }
         } catch (error) {
             toast.error(error.message);
+        } finally {
+            setIsLoading(false);
         }
-    }
-
-    //send message to user
+    };
 
     const sendMessage = async (messageData) => {
+        if (!selectedUser) {
+            toast.error("No user selected");
+            return;
+        }
+
         try {
             const { data } = await axios.post(`/api/messages/send/${selectedUser._id}`, messageData);
             if (data.success) {
-                setMessages((prevMessages) => [...prevMessages, data.newMessage])
+                setMessages((prevMessages) => [...prevMessages, data.newMessage]);
+                // Emit message sent event
+                if (socket) {
+                    socket.emit("messageSent", {
+                        messageId: data.newMessage._id,
+                        receiverId: selectedUser._id
+                    });
+                }
             } else {
                 toast.error(data.message);
             }
         } catch (error) {
             toast.error(error.message);
         }
-    }
+    };
 
-    //new message in real time 
-    const subscribeToMessages = async () => {
+    const subscribeToMessages = () => {
         if (!socket) return;
 
+        // Clean up any existing listeners
+        socket.off("newMessage");
+        socket.off("messageSeen");
+
         socket.on("newMessage", (newMessage) => {
-            console.log('New message received:', newMessage);
+            console.log("New message received:", newMessage);
+            
             if (selectedUser && newMessage.senderId === selectedUser._id) {
-                newMessage.seen = true;
                 setMessages((prevMessages) => {
-                    // Check if message already exists
-                    const exists = prevMessages.some(msg => msg._id === newMessage._id);
-                    if (exists) return prevMessages;
-                    return [...prevMessages, newMessage];
+                    // Check for duplicate messages
+                    if (prevMessages.some(msg => msg._id === newMessage._id)) {
+                        return prevMessages;
+                    }
+                    return [...prevMessages, { ...newMessage, seen: true }];
                 });
+
                 // Mark message as seen
                 axios.put(`/api/messages/mark/${newMessage._id}`).catch(error => {
-                    console.error('Error marking message as seen:', error);
+                    console.error("Error marking message as seen:", error);
                 });
             } else {
-                setUnseenMessages((prevUnseenMessages) => ({
-                    ...prevUnseenMessages,
-                    [newMessage.senderId]: (prevUnseenMessages[newMessage.senderId] || 0) + 1
+                setUnseenMessages((prev) => ({
+                    ...prev,
+                    [newMessage.senderId]: (prev[newMessage.senderId] || 0) + 1
                 }));
             }
         });
 
-        // Listen for message seen status
         socket.on("messageSeen", ({ messageId }) => {
-            setMessages((prevMessages) =>
-                prevMessages.map((msg) =>
+            setMessages((prev) =>
+                prev.map((msg) =>
                     msg._id === messageId ? { ...msg, seen: true } : msg
                 )
             );
         });
-    }
+    };
 
-    const unsubscribeFromMessages = async () => {
-        if (socket) {
-            socket.off("newMessage");
-            socket.off("messageSeen");
-        }
-    }
-
-    // Reconnect socket when selectedUser changes
+    // Handle user selection
     useEffect(() => {
-        if (socket && selectedUser) {
-            socket.emit("joinChat", selectedUser._id);
+        if (selectedUser) {
+            getMessages(selectedUser._id);
+            // Join chat room
+            if (socket) {
+                socket.emit("joinChat", selectedUser._id);
+            }
         }
         return () => {
-            if (socket && selectedUser) {
+            if (selectedUser && socket) {
                 socket.emit("leaveChat", selectedUser._id);
+            }
+        };
+    }, [selectedUser, socket]);
+
+    // Subscribe to messages when socket is available
+    useEffect(() => {
+        subscribeToMessages();
+        return () => {
+            if (socket) {
+                socket.off("newMessage");
+                socket.off("messageSeen");
             }
         };
     }, [socket, selectedUser]);
 
+    // Initial users fetch
     useEffect(() => {
-        subscribeToMessages();
-        return () => unsubscribeFromMessages();
-    }, [socket, selectedUser])
-
+        getUsers();
+    }, []);
 
     const value = {
         messages,
@@ -127,11 +149,13 @@ export const ChatProvider = ({ children }) => {
         sendMessage,
         setSelectedUser,
         unseenMessages,
-        setUnseenMessages
+        setUnseenMessages,
+        isLoading
+    };
 
-    }
-
-    return (<ChatContext.Provider value={value}>
-        {children}
-    </ChatContext.Provider>)
-}
+    return (
+        <ChatContext.Provider value={value}>
+            {children}
+        </ChatContext.Provider>
+    );
+};
