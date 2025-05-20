@@ -9,59 +9,11 @@ axios.defaults.baseURL = backendUrl;
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
+
     const [token, setToken] = useState(localStorage.getItem("token"));
     const [authUser, setAuthUser] = useState(null);
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [socket, setSocket] = useState(null);
-    const [isConnecting, setIsConnecting] = useState(false);
-
-    const connectSocket = (userData) => {
-        if (!userData || socket?.connected || isConnecting) return;
-        
-        setIsConnecting(true);
-        
-        try {
-            const newSocket = io(backendUrl, {
-                query: {
-                    userId: userData._id,
-                },
-                transports: ['websocket'],
-                reconnection: true,
-                reconnectionAttempts: 3,
-                reconnectionDelay: 1000,
-                timeout: 5000
-            });
-
-            newSocket.on('connect', () => {
-                console.log('Socket connected successfully');
-                setIsConnecting(false);
-            });
-
-            newSocket.on('connect_error', (error) => {
-                console.error('Socket connection error:', error);
-                setIsConnecting(false);
-                toast.error('Connection error. Please refresh the page.');
-            });
-
-            newSocket.on('disconnect', (reason) => {
-                console.log('Socket disconnected:', reason);
-                if (reason === 'io server disconnect') {
-                    // Server initiated disconnect, try to reconnect
-                    newSocket.connect();
-                }
-            });
-
-            newSocket.on("getOnlineUsers", (userIds) => {
-                setOnlineUsers(userIds);
-            });
-
-            setSocket(newSocket);
-        } catch (error) {
-            console.error('Error creating socket:', error);
-            setIsConnecting(false);
-            toast.error('Failed to establish connection. Please refresh the page.');
-        }
-    };
 
     const checkAuth = async () => {
         try {
@@ -73,7 +25,9 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             toast.error(error.message);
         }
-    };
+    }
+
+    //login function 
 
     const login = async (state, credentials) => {
         try {
@@ -91,20 +45,21 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             toast.error(error.message);
         }
-    };
+    }
+
+    //logout function
 
     const logout = async () => {
-        if (socket) {
-            socket.disconnect();
-            setSocket(null);
-        }
         localStorage.removeItem("token");
         setToken(null);
         setAuthUser(null);
         setOnlineUsers([]);
         axios.defaults.headers.common["token"] = null;
         toast.success("Logged out successfully");
-    };
+        socket.disconnect();
+    }
+
+    //update profile function
 
     const updateProfile = async (body) => {
         try {
@@ -116,14 +71,31 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             toast.error(error.message);
         }
-    };
+    }
+
+
+    const connectSocket = (userData) => {
+        if (!userData || socket?.connected) return;
+        const newSocket = io(backendUrl, {
+            query: {
+                userId: userData._id,
+            }
+        })
+
+        newSocket.connect();
+        setSocket(newSocket);
+
+        newSocket.on("getOnlineUsers", (userIds) => {
+            setOnlineUsers(userIds)
+        })
+    }
 
     useEffect(() => {
         if (token) {
             axios.defaults.headers.common["token"] = token;
-            checkAuth();
         }
-    }, [token]);
+        checkAuth();
+    }, [])
 
     const value = {
         axios,
@@ -133,11 +105,11 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         updateProfile,
-    };
+    }
 
     return (
         <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
-    );
-};
+    )
+}
