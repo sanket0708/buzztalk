@@ -6,7 +6,7 @@
 
 ## 🚀 Live Preview
 
-🌐 [Live App (if deployed)](https://buzz-talk-dun.vercel.app/login)  
+🌐 [Live App](https://buzz-talk-dun.vercel.app/login)  
 
 ---
 
